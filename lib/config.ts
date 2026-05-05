@@ -1,5 +1,8 @@
 import 'dotenv/config';
 
+import os from 'node:os';
+import path from 'node:path';
+
 import { ofetch } from 'ofetch';
 
 type ConfigEnvKeys =
@@ -11,6 +14,9 @@ type ConfigEnvKeys =
     | 'PLAYWRIGHT_WS_ENDPOINT'
     | 'PUPPETEER_WS_ENDPOINT'
     | 'CHROMIUM_EXECUTABLE_PATH'
+    | 'LIGHTPANDA'
+    | 'LIGHTPANDA_PORT'
+    | 'LIGHTPANDA_EXECUTABLE_PATH'
     // Network
     | 'PORT'
     | 'LISTEN_INADDR_ANY'
@@ -261,6 +267,9 @@ export type Config = {
     nodeName?: string;
     playwrightWSEndpoint?: string;
     chromiumExecutablePath?: string;
+    useLightpanda: boolean;
+    lightpandaPort: number;
+    lightpandaExecutablePath: string;
     // network
     connect: {
         port: number;
@@ -757,6 +766,9 @@ const calculateValue = () => {
         nodeName: envs.NODE_NAME,
         playwrightWSEndpoint: envs.PLAYWRIGHT_WS_ENDPOINT ?? envs.PUPPETEER_WS_ENDPOINT,
         chromiumExecutablePath: envs.CHROMIUM_EXECUTABLE_PATH,
+        useLightpanda: toBoolean(envs.LIGHTPANDA, false),
+        lightpandaPort: toInt(envs.LIGHTPANDA_PORT, 9222),
+        lightpandaExecutablePath: envs.LIGHTPANDA_EXECUTABLE_PATH ?? path.join(os.homedir(), '.local', 'bin', 'lightpanda'),
         // network
         connect: {
             port: toInt(envs.PORT, 1200), // 监听端口

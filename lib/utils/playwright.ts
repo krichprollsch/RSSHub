@@ -1,3 +1,7 @@
+import type { ChildProcess } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { access } from 'node:fs/promises';
+
 import type { Browser as PlaywrightBrowser, BrowserContext, BrowserContextOptions, LaunchOptions, Page as PlaywrightPage, Request as PlaywrightRequest, Response as PlaywrightResponse, Route } from 'playwright';
 import { chromium } from 'playwright';
 
@@ -239,7 +243,60 @@ const createCompatBrowser = async (browser: PlaywrightBrowser, contextOptions: B
     return compatBrowser;
 };
 
+let lightpandaProc: ChildProcess | null = null;
+
+const waitForCDP = (port: number, timeout = 10000): Promise<void> => {
+    const deadline = Date.now() + timeout;
+    const attempt = async (): Promise<void> => {
+        if (Date.now() >= deadline) {
+            throw new Error(`Lightpanda CDP not ready on port ${port} after ${timeout}ms`);
+        }
+        try {
+            const res = await fetch(`http://127.0.0.1:${port}/json/version`);
+            if (res.ok) {
+                return;
+            }
+        } catch {
+            // not ready yet
+        }
+        await new Promise<void>((r) => setTimeout(r, 100));
+        return attempt();
+    };
+    return attempt();
+};
+
+const ensureLightpanda = async (): Promise<void> => {
+    if (lightpandaProc) {
+        return;
+    }
+    try {
+        await access(config.lightpandaExecutablePath);
+    } catch {
+        logger.error(
+            `Lightpanda binary not found at ${config.lightpandaExecutablePath}. Install it with: curl -fsSL https://pkg.lightpanda.io/install.sh | bash`
+        );
+        throw new Error(`Lightpanda binary not found at ${config.lightpandaExecutablePath}`);
+    }
+    lightpandaProc = spawn(config.lightpandaExecutablePath, ['serve', '--host', '127.0.0.1', '--port', String(config.lightpandaPort), '--log-level', 'info'], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    lightpandaProc.on('exit', () => {
+        lightpandaProc = null;
+    });
+    await waitForCDP(config.lightpandaPort);
+    logger.debug(`Lightpanda CDP server ready on port ${config.lightpandaPort}`);
+};
+
+const launchLightpanda = async (): Promise<Browser> => {
+    await ensureLightpanda();
+    const browser = await chromium.connectOverCDP(`http://127.0.0.1:${config.lightpandaPort}`);
+    return createCompatBrowser(browser, getContextOptions());
+};
+
 const launchBrowser = async (currentProxy?: ProxyState | null) => {
+    if (config.useLightpanda) {
+        return launchLightpanda();
+    }
     const launchOptions = getLaunchOptions(currentProxy);
     const browser = config.playwrightWSEndpoint ? await chromium.connectOverCDP(getEndpointWithLaunchOptions(config.playwrightWSEndpoint, launchOptions)) : await chromium.launch(launchOptions);
     return createCompatBrowser(browser, getContextOptions());
